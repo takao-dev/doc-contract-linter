@@ -1,10 +1,17 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { verifyDocumentationContracts, renderReport, inspectUserDocumentationBoundary, verifyUserSiteOutput } from '../src/index.mjs';
+import {
+  verifyDocumentationContracts,
+  renderReport,
+  inspectUserDocumentationBoundary,
+  verifyUserSiteOutput,
+  emitGitHubAnnotations,
+  writeGitHubStepSummary,
+} from '../src/index.mjs';
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'doc-contract-linter-'));
@@ -23,7 +30,9 @@ function fixture(t) {
       { file: 'docs/guide.md', kind: 'not_contains', value: '0.0.0' },
     ],
   };
-  return { root, requirement, registry: { schemaVersion: 1, scope: 'fixture', requirements: [requirement] } };
+  const registry = { schemaVersion: 1, scope: 'fixture', requirements: [requirement] };
+  writeFileSync(join(root, 'contracts.json'), JSON.stringify(registry));
+  return { root, requirement, registry };
 }
 
 test('reports static matches, hashes and partial document mapping without claiming proof', t => {
@@ -180,4 +189,51 @@ test('cli flags --help and --version work correctly', () => {
 
   const verOut = execFileSync(process.execPath, [cliPath, '--version'], { encoding: 'utf8' });
   assert.match(verOut.trim(), /^\d+\.\d+\.\d+$/);
+});
+
+test('emitGitHubAnnotations formats boundary violations and gate errors', () => {
+  const originalLog = console.log;
+  const logs = [];
+  console.log = (msg) => logs.push(msg);
+  try {
+    emitGitHubAnnotations({
+      staticGatePassed: false,
+      boundaryIssues: [{ file: 'docs/guide.md', line: 12, rule: 'SOURCE_PATH' }],
+    });
+    assert.ok(logs.some(l => l.includes('::error file=docs/guide.md,line=12::Documentation boundary violation: rule SOURCE_PATH')));
+    assert.ok(logs.some(l => l.includes('::error::Documentation contract check failed')));
+  } finally {
+    console.log = originalLog;
+  }
+});
+
+test('writeGitHubStepSummary writes markdown report to summary file', t => {
+  const { root, registry } = fixture(t);
+  const report = verifyDocumentationContracts(root, registry, { requireGit: false });
+  const summaryFile = join(root, 'summary.md');
+  const written = writeGitHubStepSummary(report, summaryFile);
+  assert.equal(written, true);
+  const content = readFileSync(summaryFile, 'utf8');
+  assert.ok(content.includes('# Documentation contract report'));
+});
+
+test('CLI supports --config, --github-actions, and --quiet', t => {
+  const { root, registry } = fixture(t);
+  const configPath = join(root, '.doccontractrc.json');
+  writeFileSync(configPath, JSON.stringify({
+    registry: 'contracts.json',
+    requireGit: false,
+  }));
+  const cliPath = join(import.meta.dirname, '../src/index.mjs');
+  const summaryFile = join(root, 'step_summary.md');
+  writeFileSync(summaryFile, '');
+
+  const out = execFileSync(process.execPath, [cliPath, '--quiet', '--github-actions'], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, GITHUB_STEP_SUMMARY: summaryFile },
+  });
+  assert.equal(out.trim(), ''); // quiet on pass
+  const summaryContent = readFileSync(summaryFile, 'utf8');
+  assert.ok(summaryContent.includes('# Documentation contract report'));
 });

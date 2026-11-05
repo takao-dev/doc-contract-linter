@@ -182,6 +182,33 @@ const issues = inspectUserDocumentationBoundary(documents, customRules);
 
 ---
 
+## 🤖 GitHub Actions Integration
+
+Add `doc-contract-linter` directly to your GitHub PR workflow. It automatically publishes rich Step Summaries and annotates PR diffs with file/line inline warnings:
+
+```yaml
+- name: Verify Documentation Contracts
+  run: npx doc-contract-linter --github-actions --quiet
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+### Config File Support (`.doccontractrc.json`)
+
+You can also place a `.doccontractrc.json` in your repository root:
+
+```json
+{
+  "registry": "contracts.json",
+  "output": "artifacts/docs-lint",
+  "siteOutput": "dist/docs",
+  "requireGit": true,
+  "docFolders": ["docs", "docs-dev"]
+}
+```
+
+---
+
 ## 📄 License
 
 MIT License © 2026 takaodev

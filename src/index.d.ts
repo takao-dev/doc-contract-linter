@@ -138,3 +138,10 @@ export function verifyDocumentationContracts(
 ): DocumentationContractReport;
 
 export function renderReport(report: DocumentationContractReport): string;
+
+export function emitGitHubAnnotations(report: DocumentationContractReport): void;
+
+export function writeGitHubStepSummary(
+  report: DocumentationContractReport,
+  summaryFilePath?: string
+): boolean;

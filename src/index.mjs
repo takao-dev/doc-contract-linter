@@ -38,7 +38,46 @@ export const DEFAULT_BOUNDARY_RULES = [
   ['DEVELOPER_COMMAND', /\b(?:npm (?:run|ci|install)|dotnet (?:build|publish|test))\b/g],
 ];
 
-// Narrow, reviewable heuristics supplement reader-focused manual review.
+export function emitGitHubAnnotations(report) {
+  if (!report) return;
+  // Emit file annotations for boundary issues
+  if (Array.isArray(report.boundaryIssues)) {
+    for (const issue of report.boundaryIssues) {
+      console.log(`::error file=${issue.file},line=${issue.line}::Documentation boundary violation: rule ${issue.rule}`);
+    }
+  }
+  // Emit summary error if static gate failed
+  if (!report.staticGatePassed) {
+    console.log('::error::Documentation contract check failed: static verification gate did not pass.');
+  }
+}
+
+export function writeGitHubStepSummary(report, summaryFilePath = process.env.GITHUB_STEP_SUMMARY) {
+  if (!summaryFilePath || !existsSync(dirname(summaryFilePath))) return false;
+  try {
+    writeFileSync(summaryFilePath, `\n${renderReport(report)}\n`, { encoding: 'utf8', flag: 'a' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function loadConfigFile(root, explicitPath) {
+  const candidates = explicitPath
+    ? [explicitPath]
+    : ['.doccontractrc.json', 'doc-contract.config.json', '.doccontractrc'];
+  for (const candidate of candidates) {
+    const fullPath = resolve(root, candidate);
+    if (existsSync(fullPath)) {
+      try {
+        return JSON.parse(readFileSync(fullPath, 'utf8'));
+      } catch (e) {
+        throw new Error(`Failed to parse config file ${candidate}: ${e.message}`);
+      }
+    }
+  }
+  return null;
+}
 export function inspectUserDocumentationBoundary(documents, customRules = DEFAULT_BOUNDARY_RULES, userDocPrefix = 'docs/') {
   const rules = customRules.map(([name, expr]) => [
     name,
@@ -232,9 +271,12 @@ Usage:
   doc-contract-linter [options]
 
 Options:
+  --config <path>       Path to config JSON (defaults to .doccontractrc.json or doc-contract.config.json)
   --registry <path>     Path to contract registry JSON (default: contracts.json)
   --output <dir>        Directory to output report.json and report.md
   --site-output <dir>   Verify generated user-facing documentation website output
+  --github-actions      Emit GitHub Actions annotations and write to $GITHUB_STEP_SUMMARY
+  --quiet               Suppress normal console output on success
   --no-git              Skip Git commit and working-tree clean status check
   --json                Output report in raw JSON instead of Markdown
   -v, --version         Show version number
@@ -257,14 +299,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
         const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
         console.log(pkg.version);
       } catch {
-        console.log('1.0.0');
+        console.log('1.1.0');
       }
       process.exit(0);
     }
 
     const options = new Map();
-    let requireGit = true;
+    let requireGit = null;
     let jsonOutput = false;
+    let quiet = false;
+    let githubActions = Boolean(process.env.GITHUB_ACTIONS === 'true');
 
     for (let index = 0; index < args.length; index += 1) {
       const arg = args[index];
@@ -276,7 +320,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
         jsonOutput = true;
         continue;
       }
-      if (['--output', '--site-output', '--registry'].includes(arg)) {
+      if (arg === '--quiet') {
+        quiet = true;
+        continue;
+      }
+      if (arg === '--github-actions') {
+        githubActions = true;
+        continue;
+      }
+      if (['--output', '--site-output', '--registry', '--config'].includes(arg)) {
         const next = args[index + 1];
         if (!next || next.startsWith('--')) throw new Error(`Missing value for argument: ${arg}`);
         options.set(arg, next);
@@ -286,13 +338,22 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       throw new Error(`Unknown argument: ${arg}`);
     }
 
-    const registryPath = options.get('--registry') || 'contracts.json';
-    const output = options.has('--output') ? prepareOutput(root, options.get('--output')) : null;
-    const registry = JSON.parse(readFileSync(scopedFile(root, registryPath), 'utf8'));
-    const report = verifyDocumentationContracts(root, registry, { requireGit });
+    const config = loadConfigFile(root, options.get('--config')) || {};
+    const registryPath = options.get('--registry') || config.registry || 'contracts.json';
+    const outputDir = options.get('--output') || config.output;
+    const siteOutputDir = options.get('--site-output') || config.siteOutput;
+    const finalRequireGit = requireGit !== null ? requireGit : (config.requireGit ?? true);
 
-    if (options.has('--site-output')) {
-      report.siteOutput = verifyUserSiteOutput(root, options.get('--site-output'));
+    const output = outputDir ? prepareOutput(root, outputDir) : null;
+    const registry = JSON.parse(readFileSync(scopedFile(root, registryPath), 'utf8'));
+    const report = verifyDocumentationContracts(root, registry, {
+      requireGit: finalRequireGit,
+      docFolders: config.docFolders,
+      userDocPrefix: config.userDocPrefix,
+    });
+
+    if (siteOutputDir) {
+      report.siteOutput = verifyUserSiteOutput(root, siteOutputDir);
       report.staticGatePassed &&= report.siteOutput.passed;
     }
 
@@ -310,10 +371,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       }
     }
 
-    if (jsonOutput) {
-      console.log(JSON.stringify(report, null, 2));
-    } else {
-      console.log(renderReport(report));
+    if (githubActions) {
+      emitGitHubAnnotations(report);
+      writeGitHubStepSummary(report);
+    }
+
+    if (!quiet) {
+      if (jsonOutput) {
+        console.log(JSON.stringify(report, null, 2));
+      } else {
+        console.log(renderReport(report));
+      }
     }
 
     process.exitCode = report.staticGatePassed ? 0 : 1;
