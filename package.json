@@ -1,0 +1,43 @@
+{
+  "name": "doc-contract-linter",
+  "version": "1.0.0",
+  "description": "Zero-dependency Docs-as-Code contract verifier and audience-boundary linter for AI-assisted repositories.",
+  "type": "module",
+  "main": "./src/index.mjs",
+  "types": "./src/index.d.ts",
+  "bin": {
+    "doc-contract-linter": "./src/index.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.mjs"
+    }
+  },
+  "files": [
+    "src",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "documentation",
+    "linter",
+    "contracts",
+    "traceability",
+    "docs-as-code",
+    "security-boundary",
+    "ai-guardrails"
+  ],
+  "author": "takaodev",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/takaodev/doc-contract-linter.git"
+  }
+}
