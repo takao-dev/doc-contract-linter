@@ -3,7 +3,10 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
 import {
   verifyDocumentationContracts,
   renderReport,
@@ -182,7 +185,7 @@ test('supports requireGit false to pass static gate outside a git checkout', t =
 });
 
 test('cli flags --help and --version work correctly', () => {
-  const cliPath = join(import.meta.dirname, '../src/index.mjs');
+  const cliPath = join(__dirname, '../src/index.mjs');
   const helpOut = execFileSync(process.execPath, [cliPath, '--help'], { encoding: 'utf8' });
   assert.ok(helpOut.includes('doc-contract-linter'));
   assert.ok(helpOut.includes('--registry'));
@@ -224,7 +227,7 @@ test('CLI supports --config, --github-actions, and --quiet', t => {
     registry: 'contracts.json',
     requireGit: false,
   }));
-  const cliPath = join(import.meta.dirname, '../src/index.mjs');
+  const cliPath = join(__dirname, '../src/index.mjs');
   const summaryFile = join(root, 'step_summary.md');
   writeFileSync(summaryFile, '');
 
