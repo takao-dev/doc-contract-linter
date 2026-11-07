@@ -71,12 +71,12 @@ npx doc-contract-linter --registry contracts.json
           "file": "package.json",
           "kind": "json_equals",
           "path": ["version"],
-          "value": "1.2.0"
+          "value": "1.0.0"
         },
         {
           "file": "docs/api/overview.md",
           "kind": "contains",
-          "value": "v1.2.0"
+          "value": "v1.0.0"
         }
       ]
     }
