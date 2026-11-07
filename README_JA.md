@@ -1,5 +1,6 @@
 # doc-contract-linter
 
+[![codecov](https://codecov.io/gh/takao-dev/doc-contract-linter/branch/main/graph/badge.svg)](https://codecov.io/gh/takao-dev/doc-contract-linter)
 [![npm version](https://img.shields.io/npm/v/doc-contract-linter.svg)](https://www.npmjs.com/package/doc-contract-linter)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)]()
