@@ -54,7 +54,7 @@ npx doc-contract-linter --registry contracts.json
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/takaodev/doc-contract-linter/main/contracts.schema.json",
+  "$schema": "https://raw.githubusercontent.com/takao-dev/doc-contract-linter/main/contracts.schema.json",
   "schemaVersion": 1,
   "scope": "プロジェクト仕様適合性検証",
   "docFolders": ["docs", "docs-dev"],
@@ -153,4 +153,4 @@ jobs:
 
 ## 📄 ライセンス
 
-MIT License © 2026 takaodev
+MIT License © 2026 takao-dev

@@ -35,10 +35,10 @@
     "security-boundary",
     "ai-guardrails"
   ],
-  "author": "takaodev",
+  "author": "takao-dev",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/takaodev/doc-contract-linter.git"
+    "url": "git+https://github.com/takao-dev/doc-contract-linter.git"
   }
 }
