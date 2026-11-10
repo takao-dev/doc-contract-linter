@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync, realpathSync, mkdirSync, writeFileSync, lstatSync, unlinkSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, realpathSync, mkdirSync, writeFileSync, lstatSync, unlinkSync, existsSync, openSync, closeSync, constants } from 'node:fs';
 import { resolve, relative, isAbsolute, dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -363,11 +363,23 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
         ['report.md', renderReport(report)],
       ]) {
         const path = resolve(output, name);
-        try { if (lstatSync(path).isSymbolicLink()) throw new Error('Output file must not be a symlink'); }
-        catch (error) { if (error.code !== 'ENOENT') throw error; }
         try { scopedFile(root, relative(root, path)); }
         catch (error) { if (error.code !== 'ENOENT') throw error; }
-        writeFileSync(path, value, { encoding: 'utf8' });
+        const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | (constants.O_NOFOLLOW || 0);
+        let fd;
+        try {
+          fd = openSync(path, flags, 0o644);
+        } catch (err) {
+          if (err && (err.code === 'ELOOP' || err.code === 'EEXIST')) {
+            throw new Error('Output file must not be a symlink');
+          }
+          throw err;
+        }
+        try {
+          writeFileSync(fd, value, { encoding: 'utf8' });
+        } finally {
+          closeSync(fd);
+        }
       }
     }
 

@@ -221,7 +221,7 @@ test('writeGitHubStepSummary writes markdown report to summary file', t => {
 });
 
 test('CLI supports --config, --github-actions, and --quiet', t => {
-  const { root, registry } = fixture(t);
+  const { root } = fixture(t);
   const configPath = join(root, '.doccontractrc.json');
   writeFileSync(configPath, JSON.stringify({
     registry: 'contracts.json',
