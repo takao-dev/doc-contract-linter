@@ -299,7 +299,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
         const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
         console.log(pkg.version);
       } catch {
-        console.log('1.0.0');
+        console.log('1.0.1');
       }
       process.exit(0);
     }
