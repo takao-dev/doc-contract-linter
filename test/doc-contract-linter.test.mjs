@@ -270,6 +270,24 @@ test('CLI error handling on invalid config or broken registry', t => {
   const { root } = fixture(t);
   const cliPath = join(__dirname, '../src/index.mjs');
 
+  // Unknown CLI argument
+  assert.throws(() => {
+    execFileSync(process.execPath, [cliPath, '--unknown-flag'], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: 'pipe',
+    });
+  });
+
+  // Missing value for CLI argument
+  assert.throws(() => {
+    execFileSync(process.execPath, [cliPath, '--output'], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: 'pipe',
+    });
+  });
+
   // Broken config file JSON
   writeFileSync(join(root, '.doccontractrc.json'), '{ invalid json');
   assert.throws(() => {
@@ -289,4 +307,41 @@ test('CLI error handling on invalid config or broken registry', t => {
       stdio: 'pipe',
     });
   });
+});
+
+test('CLI renders normal Markdown output when neither --quiet nor --json is passed', t => {
+  const { root } = fixture(t);
+  const cliPath = join(__dirname, '../src/index.mjs');
+  const out = execFileSync(process.execPath, [cliPath, '--no-git'], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  assert.ok(out.includes('# Documentation contract report'));
+});
+
+test('writeGitHubStepSummary returns false when writing fails', t => {
+  const { root, registry } = fixture(t);
+  const report = verifyDocumentationContracts(root, registry, { requireGit: false });
+  // Pass a directory path as the file path to trigger writeFileSync error
+  const invalidFilePath = join(root, 'a_directory');
+  mkdirSync(invalidFilePath);
+  const result = writeGitHubStepSummary(report, invalidFilePath);
+  assert.equal(result, false);
+});
+
+test('prepareOutput unlinks existing report.json and report.md', t => {
+  const { root } = fixture(t);
+  const cliPath = join(__dirname, '../src/index.mjs');
+  const outputDir = join(root, 'artifacts_existing');
+  mkdirSync(outputDir, { recursive: true });
+  writeFileSync(join(outputDir, 'report.json'), '{"old":true}');
+  writeFileSync(join(outputDir, 'report.md'), '# Old Report');
+
+  execFileSync(process.execPath, [cliPath, '--output', 'artifacts_existing', '--no-git', '--quiet'], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+
+  const newReport = JSON.parse(readFileSync(join(outputDir, 'report.json'), 'utf8'));
+  assert.equal(newReport.staticGatePassed, true);
 });
