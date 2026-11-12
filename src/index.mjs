@@ -300,9 +300,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       try {
         const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
         console.log(pkg.version);
+      /* node:coverage disable */
       } catch {
         console.log('1.0.1');
       }
+      /* node:coverage enable */
       process.exit(0);
     }
 
@@ -371,12 +373,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
         let fd;
         try {
           fd = openSync(path, flags, 0o644);
+        /* node:coverage disable */
         } catch (err) {
           if (err && (err.code === 'ELOOP' || err.code === 'EEXIST')) {
             throw new Error('Output file must not be a symlink');
           }
           throw err;
         }
+        /* node:coverage enable */
         try {
           writeFileSync(fd, value, { encoding: 'utf8' });
         } finally {
