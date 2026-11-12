@@ -249,7 +249,9 @@ function prepareOutput(root, argument) {
   if (!rel || rel.startsWith('..') || isAbsolute(rel)) throw new Error('Output must be inside project root');
   let ancestor = output;
   while (true) {
-    try { scopedFile(root, relative(root, ancestor)); break; }
+    const relAncestor = relative(root, ancestor);
+    if (!relAncestor) break;
+    try { scopedFile(root, relAncestor); break; }
     catch (error) { if (error.code !== 'ENOENT') throw error; ancestor = dirname(ancestor); }
   }
   mkdirSync(output, { recursive: true });

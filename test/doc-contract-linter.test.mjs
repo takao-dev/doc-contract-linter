@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -239,4 +239,54 @@ test('CLI supports --config, --github-actions, and --quiet', t => {
   assert.equal(out.trim(), ''); // quiet on pass
   const summaryContent = readFileSync(summaryFile, 'utf8');
   assert.ok(summaryContent.includes('# Documentation contract report'));
+});
+
+test('CLI supports --output, --json, and --site-output', t => {
+  const { root } = fixture(t);
+  const cliPath = join(__dirname, '../src/index.mjs');
+  const outputDir = join(root, 'artifacts');
+  const siteDir = join(root, 'site_out');
+  mkdirSync(siteDir, { recursive: true });
+  writeFileSync(join(siteDir, 'index.html'), '<!doctype html><html><body>Valid site</body></html>');
+
+  const out = execFileSync(process.execPath, [
+    cliPath,
+    '--output', 'artifacts',
+    '--json',
+    '--site-output', 'site_out',
+    '--no-git',
+  ], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+
+  const parsed = JSON.parse(out);
+  assert.equal(parsed.staticGatePassed, true);
+  assert.ok(existsSync(join(outputDir, 'report.json')));
+  assert.ok(existsSync(join(outputDir, 'report.md')));
+});
+
+test('CLI error handling on invalid config or broken registry', t => {
+  const { root } = fixture(t);
+  const cliPath = join(__dirname, '../src/index.mjs');
+
+  // Broken config file JSON
+  writeFileSync(join(root, '.doccontractrc.json'), '{ invalid json');
+  assert.throws(() => {
+    execFileSync(process.execPath, [cliPath], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: 'pipe',
+    });
+  });
+
+  // Missing registry file error
+  writeFileSync(join(root, '.doccontractrc.json'), JSON.stringify({ registry: 'nonexistent.json', requireGit: false }));
+  assert.throws(() => {
+    execFileSync(process.execPath, [cliPath], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: 'pipe',
+    });
+  });
 });
