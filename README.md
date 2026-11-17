@@ -1,6 +1,7 @@
 # doc-contract-linter
 
 [![npm version](https://img.shields.io/npm/v/doc-contract-linter.svg)](https://www.npmjs.com/package/doc-contract-linter)
+[![npm downloads](https://img.shields.io/npm/dw/doc-contract-linter.svg)](https://www.npmjs.com/package/doc-contract-linter)
 [![CI](https://github.com/takao-dev/doc-contract-linter/actions/workflows/ci.yml/badge.svg)](https://github.com/takao-dev/doc-contract-linter/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/takao-dev/doc-contract-linter/branch/main/graph/badge.svg)](https://codecov.io/gh/takao-dev/doc-contract-linter)
 [![CodeQL](https://github.com/takao-dev/doc-contract-linter/actions/workflows/codeql.yml/badge.svg)](https://github.com/takao-dev/doc-contract-linter/actions/workflows/codeql.yml)
