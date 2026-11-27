@@ -17,7 +17,7 @@ function markdownFiles(root, folder) {
   const result = [];
   const walk = (path) => {
     for (const entry of readdirSync(scopedFile(root, path), { withFileTypes: true })) {
-      if (entry.name.startsWith('.') || ['node_modules', 'build', 'dist'].includes(entry.name)) continue;
+      if (['.git', 'node_modules', 'build', 'dist'].includes(entry.name)) continue;
       const next = `${path}/${entry.name}`;
       if (entry.isDirectory()) walk(next);
       else if (entry.isFile() && entry.name.endsWith('.md')) result.push(next);
@@ -38,12 +38,51 @@ export const DEFAULT_BOUNDARY_RULES = [
   ['DEVELOPER_COMMAND', /\b(?:npm (?:run|ci|install)|dotnet (?:build|publish|test))\b/g],
 ];
 
+const BOUNDARY_SCAN_TIMEOUT_MS = 1000;
+const MAX_BOUNDARY_RULES = 128;
+const MAX_BOUNDARY_PATTERN_CHARS = 512;
+const MAX_BOUNDARY_INPUT_BYTES = 16 * 1024 * 1024;
+const MAX_BOUNDARY_MATCHES = 5000;
+const BOUNDARY_SCAN_SCRIPT = `
+const fs = require('node:fs');
+const { documents, rules, userDocPrefix } = JSON.parse(fs.readFileSync(0, 'utf8'));
+const issues = [];
+for (const { path, text } of documents) {
+  if (!path.startsWith(userDocPrefix)) continue;
+  for (const { name, pattern, flags } of rules) {
+    const expression = new RegExp(pattern, flags);
+    let line = 1;
+    let scannedTo = 0;
+    for (const match of text.matchAll(expression)) {
+      for (let index = scannedTo; index < match.index; index += 1) {
+        if (text.charCodeAt(index) === 10) line += 1;
+      }
+      issues.push({ file: path, rule: name, line });
+      if (issues.length > ${MAX_BOUNDARY_MATCHES}) throw new Error('match limit');
+      scannedTo = match.index;
+    }
+  }
+}
+process.stdout.write(JSON.stringify(issues));
+`;
+
+function workflowCommandEscape(value, property = false) {
+  let escaped = String(value).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+  if (property) escaped = escaped.replace(/:/g, '%3A').replace(/,/g, '%2C');
+  return escaped;
+}
+
 export function emitGitHubAnnotations(report) {
   if (!report) return;
   // Emit file annotations for boundary issues
   if (Array.isArray(report.boundaryIssues)) {
     for (const issue of report.boundaryIssues) {
-      console.log(`::error file=${issue.file},line=${issue.line}::Documentation boundary violation: rule ${issue.rule}`);
+      const properties = [];
+      if (issue.file) properties.push(`file=${workflowCommandEscape(issue.file, true)}`);
+      if (Number.isInteger(issue.line) && issue.line > 0) properties.push(`line=${issue.line}`);
+      const metadata = properties.length ? ` ${properties.join(',')}` : '';
+      const message = workflowCommandEscape(`Documentation boundary violation: rule ${issue.rule}`);
+      console.log(`::error${metadata}::${message}`);
     }
   }
   // Emit summary error if static gate failed
@@ -79,21 +118,40 @@ function loadConfigFile(root, explicitPath) {
   return null;
 }
 export function inspectUserDocumentationBoundary(documents, customRules = DEFAULT_BOUNDARY_RULES, userDocPrefix = 'docs/') {
+  if (!Array.isArray(documents) || documents.length > 4096) throw new RangeError('Too many documentation files to scan');
+  if (!Array.isArray(customRules) || customRules.length > MAX_BOUNDARY_RULES) throw new RangeError('Too many documentation boundary rules');
   const rules = customRules.map(([name, expr]) => [
     name,
-    expr instanceof RegExp ? new RegExp(expr.source, expr.flags) : new RegExp(expr.pattern, expr.flags || 'g'),
+    expr instanceof RegExp ? expr.source : expr?.pattern,
+    expr instanceof RegExp ? expr.flags : expr?.flags || 'g',
   ]);
-  const issues = [];
-  for (const { path, text } of documents) {
-    if (!path.startsWith(userDocPrefix)) continue;
-    for (const [rule, expression] of rules) {
-      expression.lastIndex = 0;
-      for (const match of text.matchAll(expression)) {
-        issues.push({ file: path, rule, line: text.slice(0, match.index).split('\n').length });
-      }
+  const safeRules = rules.map(([name, pattern, flags]) => {
+    if (typeof name !== 'string' || !name || name.length > 128 || typeof pattern !== 'string' || pattern.length > MAX_BOUNDARY_PATTERN_CHARS) {
+      throw new TypeError('Boundary rules require a name and a pattern no longer than 512 characters');
     }
+    const normalizedFlags = [...new Set(`${flags}g`.split(''))].join('');
+    return { name, pattern, flags: normalizedFlags };
+  });
+  let inputBytes = 0;
+  const safeDocuments = documents.map(({ path, text }) => {
+    if (typeof path !== 'string' || typeof text !== 'string') throw new TypeError('Boundary documents require string paths and text');
+    inputBytes += Buffer.byteLength(path) + Buffer.byteLength(text);
+    if (inputBytes > MAX_BOUNDARY_INPUT_BYTES) throw new RangeError('Documentation boundary input exceeds 16 MiB');
+    return { path, text };
+  });
+  try {
+    const output = execFileSync(process.execPath, ['-e', BOUNDARY_SCAN_SCRIPT], {
+      input: JSON.stringify({ documents: safeDocuments, rules: safeRules, userDocPrefix }),
+      encoding: 'utf8',
+      timeout: BOUNDARY_SCAN_TIMEOUT_MS,
+      maxBuffer: MAX_BOUNDARY_INPUT_BYTES,
+      windowsHide: true,
+      env: { PATH: process.env.PATH || '', SYSTEMROOT: process.env.SystemRoot || process.env.SYSTEMROOT || '' },
+    });
+    return JSON.parse(output);
+  } catch {
+    throw new Error('Documentation boundary scan failed or exceeded its safety limits');
   }
-  return issues;
 }
 
 export function verifyUserSiteOutput(root, directory) {
@@ -186,11 +244,14 @@ export function verifyDocumentationContracts(root, registry, options = {}) {
       modes: [...new Set(requirements.map(r => r.mode))].sort(),
       staticAssertionIds: staticChecks.map(r => r.id) };
   });
+  const boundaryDocuments = [];
   const boundaryIssues = [];
   for (const path of documentInventory.filter(p => p.startsWith(userDocPrefix))) {
-    try { boundaryIssues.push(...inspectUserDocumentationBoundary([{ path, text: read(path) }], boundaryRules, userDocPrefix)); }
+    try { boundaryDocuments.push({ path, text: read(path) }); }
     catch { boundaryIssues.push({ file: path, rule: 'UNREADABLE_DOCUMENT', line: null }); }
   }
+  try { boundaryIssues.push(...inspectUserDocumentationBoundary(boundaryDocuments, boundaryRules, userDocPrefix)); }
+  catch { boundaryIssues.push({ file: '<boundary-scan>', rule: 'BOUNDARY_SCAN_FAILED', line: null }); }
   const components = repositories.map(path => {
     let head = null;
     let dirty = null;
@@ -230,7 +291,11 @@ export function verifyDocumentationContracts(root, registry, options = {}) {
 }
 
 export function renderReport(report) {
-  const escape = text => String(text).replace(/[|\r\n<>]/g, ' ');
+  const escape = text => String(text)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\|/g, '&#124;').replace(/`/g, '&#96;').replace(/\[/g, '&#91;').replace(/\]/g, '&#93;')
+    .replace(/!/g, '&#33;').replace(/\*/g, '&#42;').replace(/_/g, '&#95;')
+    .replace(/[\r\n]/g, ' ');
   return `# Documentation contract report\n\nGenerated: ${report.generatedAt}\n\n` +
     `Scope: ${escape(report.scope)}\n\n${report.assurance}\n\n` +
     `Static gate: ${report.staticGatePassed ? 'PASS' : 'FAIL'}. Exhaustive conformance proven: false.\n\n` +
@@ -239,7 +304,7 @@ export function renderReport(report) {
     '| ID | Component | Status | Requirement |\n| --- | --- | --- | --- |\n' +
     report.results.map(r => `| ${escape(r.id)} | ${escape(r.component)} | ${r.status} | ${escape(r.title)} |`).join('\n') + '\n\n' +
     '## User-document boundary issues\n\n' +
-    (report.boundaryIssues.length ? report.boundaryIssues.map(issue => `- ${escape(issue.file)}:${issue.line ?? '?'}: ${issue.rule}`).join('\n') : 'None detected by registered heuristics; manual review remains required.') + '\n\n' +
+    (report.boundaryIssues.length ? report.boundaryIssues.map(issue => `- ${escape(issue.file)}:${issue.line ?? '?'}: ${escape(issue.rule)}`).join('\n') : 'None detected by registered heuristics; manual review remains required.') + '\n\n' +
     `Generated user site check: ${report.siteOutput ? (report.siteOutput.passed ? 'PASS' : 'FAIL') : 'NOT RUN'}\n`;
 }
 

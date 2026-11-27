@@ -138,10 +138,12 @@ test('evidence cannot escape checkout', t => {
 
 test('readable reports escape table separators and flag unaudited claims', t => {
   const { root, registry, requirement } = fixture(t);
-  requirement.title = 'one|two\n<three>';
+  requirement.title = 'one|two\n<three> ![](https://example.invalid/tracker.png)';
   const markdown = renderReport(verifyDocumentationContracts(root, registry));
   assert.ok(!markdown.includes('<three>'));
   assert.ok(!markdown.includes('one|two'));
+  assert.ok(!markdown.includes('![]('));
+  assert.ok(!markdown.includes('](https://example.invalid/tracker.png)'));
   assert.ok(markdown.includes('Unregistered claims remain unaudited.'));
 });
 
@@ -163,6 +165,24 @@ test('user operations remain allowed and a new unregistered page cannot bypass b
   assert.equal(report.metrics.matched_static, 1);
   assert.equal(report.metrics.userDocumentationBoundaryIssues, 1);
   assert.equal(report.staticGatePassed, false);
+});
+
+test('hidden Markdown files remain in the documentation boundary inventory', t => {
+  const { root, registry } = fixture(t);
+  writeFileSync(join(root, 'docs', '.hidden.md'), 'Provider');
+  const report = verifyDocumentationContracts(root, registry);
+  assert.ok(report.documentCoverage.some(document => document.path === 'docs/.hidden.md'));
+  assert.ok(report.boundaryIssues.some(issue => issue.file === 'docs/.hidden.md'));
+  assert.equal(report.staticGatePassed, false);
+});
+
+test('custom boundary regex execution has a hard time limit', () => {
+  const started = Date.now();
+  assert.throws(() => inspectUserDocumentationBoundary(
+    [{ path: 'docs/hostile.md', text: `${'a'.repeat(100_000)}!` }],
+    [['CATASTROPHIC', /(a|aa)+$/g]],
+  ), /failed or exceeded its safety limits/);
+  assert.ok(Date.now() - started < 4000);
 });
 
 test('generated site check rejects README output and incomplete builds', t => {
@@ -205,6 +225,24 @@ test('emitGitHubAnnotations formats boundary violations and gate errors', () => 
     });
     assert.ok(logs.some(l => l.includes('::error file=docs/guide.md,line=12::Documentation boundary violation: rule SOURCE_PATH')));
     assert.ok(logs.some(l => l.includes('::error::Documentation contract check failed')));
+  } finally {
+    console.log = originalLog;
+  }
+});
+
+test('GitHub annotations encode attacker-controlled paths and rule names', () => {
+  const originalLog = console.log;
+  const logs = [];
+  console.log = (msg) => logs.push(msg);
+  try {
+    emitGitHubAnnotations({
+      staticGatePassed: true,
+      boundaryIssues: [{ file: 'docs/page.md,line=4\n::notice::forged', line: 12, rule: 'RULE,%\n::warning::forged' }],
+    });
+    assert.equal(logs.length, 1);
+    assert.ok(logs[0].includes('file=docs/page.md%2Cline=4%0A%3A%3Anotice%3A%3Aforged,line=12'));
+    assert.ok(logs[0].includes('RULE,%25%0A::warning::forged'));
+    assert.ok(!logs[0].includes('\n::notice::forged'));
   } finally {
     console.log = originalLog;
   }

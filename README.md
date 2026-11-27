@@ -184,6 +184,8 @@ const customRules: BoundaryRule[] = [
 const issues = inspectUserDocumentationBoundary(documents, customRules);
 ```
 
+Boundary patterns run in a separate Node process with a one-second time limit. A scan accepts at most 128 patterns (512 characters each), 16 MiB of document text, and 5,000 matches; exceeding a limit fails the gate. Keep custom patterns simple and anchored where possible.
+
 ---
 
 ## 🤖 GitHub Actions Integration
